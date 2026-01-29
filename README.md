@@ -179,3 +179,9 @@ docker run test-env <test_command>
 ## Created
 
 2026-01-29
+
+## Credits
+
+This benchmark and sample dataset are created and maintained by **[Cognyzer](https://github.com/cognyzer)**.
+
+If you find this helpful, please consider giving us a **★ Star** on GitHub: [Cognyzer-SWE-Bench_Samples](https://github.com/cognyzer/Cognyzer-SWE-Bench_Samples)
