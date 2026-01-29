@@ -1,0 +1,55 @@
+diff --git a/ast/builtins_test.go b/ast/builtins_test.go
+index 68a0b0843b..16ce596782 100644
+--- a/ast/builtins_test.go
++++ b/ast/builtins_test.go
+@@ -6,13 +6,13 @@ package ast
+ 
+ import (
+ 	"encoding/json"
++	"fmt"
+ 	"testing"
+ 
+ 	"github.com/open-policy-agent/opa/types"
+ )
+ 
+ func TestBuiltinDeclRoundtrip(t *testing.T) {
+-
+ 	bs, err := json.Marshal(Plus)
+ 	if err != nil {
+ 		t.Fatal(err)
+@@ -28,3 +28,35 @@ func TestBuiltinDeclRoundtrip(t *testing.T) {
+ 		t.Fatal("expected:", Plus, "got:", cpy)
+ 	}
+ }
++
++func TestAllBuiltinsHaveDescribedArguments(t *testing.T) {
++	for _, b := range Builtins {
++		if b.deprecated || b.Infix != "" || b.Name == "print" || b.Name == "internal.print" {
++			continue
++		}
++
++		t.Run(b.Name, func(t *testing.T) {
++			namedAndDescribed(t, "arg", b.Decl.NamedFuncArgs().Args...)
++			namedAndDescribed(t, "res", b.Decl.NamedResult())
++		})
++	}
++}
++
++func namedAndDescribed(t *testing.T, typ string, args ...types.Type) {
++	t.Helper()
++
++	for i, arg := range args {
++		t.Run(fmt.Sprintf("%s=%d", typ, i), func(t *testing.T) {
++			typ, ok := arg.(*types.NamedType)
++			if !ok {
++				t.Fatalf("expected arg to be %T, got %T", typ, arg)
++			}
++			if typ.Name == "" {
++				t.Error("empty name")
++			}
++			if typ.Descr == "" {
++				t.Error("empty description")
++			}
++		})
++	}
++}

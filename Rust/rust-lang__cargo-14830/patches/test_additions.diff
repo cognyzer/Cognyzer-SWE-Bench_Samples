@@ -1,0 +1,186 @@
+diff --git a/tests/testsuite/config_include.rs b/tests/testsuite/config_include.rs
+index 1bb7e717a57..468115dd508 100644
+--- a/tests/testsuite/config_include.rs
++++ b/tests/testsuite/config_include.rs
+@@ -244,7 +244,6 @@ fn works_with_cli() {
+     p.cargo("check -v -Z config-include")
+         .masquerade_as_nightly_cargo(&["config-include"])
+         .with_stderr_data(str![[r#"
+-[DIRTY] foo v0.0.1 ([ROOT]/foo): the rustflags changed
+ [CHECKING] foo v0.0.1 ([ROOT]/foo)
+ [RUNNING] `rustc [..]-W unsafe-code -W unused`
+ [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
+
+diff --git a/tests/testsuite/freshness.rs b/tests/testsuite/freshness.rs
+index e01adc6564b..d2a6135e8a5 100644
+--- a/tests/testsuite/freshness.rs
++++ b/tests/testsuite/freshness.rs
+@@ -1337,7 +1337,6 @@ fn changing_rustflags_is_cached() {
+     p.cargo("build -v")
+         .env("RUSTFLAGS", "-C linker=cc")
+         .with_stderr_data(str![[r#"
+-[DIRTY] foo v0.0.1 ([ROOT]/foo): the rustflags changed
+ [COMPILING] foo v0.0.1 ([ROOT]/foo)
+ [RUNNING] `rustc [..]
+ [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
+@@ -1347,9 +1346,7 @@ fn changing_rustflags_is_cached() {
+ 
+     p.cargo("build -v")
+         .with_stderr_data(str![[r#"
+-[DIRTY] foo v0.0.1 ([ROOT]/foo): the rustflags changed
+-[COMPILING] foo v0.0.1 ([ROOT]/foo)
+-[RUNNING] `rustc [..] src/lib.rs [..]
++[FRESH] foo v0.0.1 ([ROOT]/foo)
+ [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
+ 
+ "#]])
+@@ -1357,11 +1354,46 @@ fn changing_rustflags_is_cached() {
+     p.cargo("build -v")
+         .env("RUSTFLAGS", "-C linker=cc")
+         .with_stderr_data(str![[r#"
+-[DIRTY] foo v0.0.1 ([ROOT]/foo): the rustflags changed
++[FRESH] foo v0.0.1 ([ROOT]/foo)
++[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
++
++"#]])
++        .run();
++}
++
++#[cargo_test]
++fn changing_rustc_extra_flags_is_cached() {
++    let p = project().file("src/lib.rs", "").build();
++
++    // This isn't ever cached, we always have to recompile
++    p.cargo("rustc")
++        .with_stderr_data(str![[r#"
++[COMPILING] foo v0.0.1 ([ROOT]/foo)
++[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
++
++"#]])
++        .run();
++    p.cargo("rustc -v -- -C linker=cc")
++        .with_stderr_data(str![[r#"
+ [COMPILING] foo v0.0.1 ([ROOT]/foo)
+ [RUNNING] `rustc [..]
+ [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
+ 
++"#]])
++        .run();
++
++    p.cargo("rustc -v")
++        .with_stderr_data(str![[r#"
++[FRESH] foo v0.0.1 ([ROOT]/foo)
++[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
++
++"#]])
++        .run();
++    p.cargo("rustc -v -- -C linker=cc")
++        .with_stderr_data(str![[r#"
++[FRESH] foo v0.0.1 ([ROOT]/foo)
++[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
++
+ "#]])
+         .run();
+ }
+
+diff --git a/tests/testsuite/freshness_checksum.rs b/tests/testsuite/freshness_checksum.rs
+index 386ee11a31a..5c4b88fdbc3 100644
+--- a/tests/testsuite/freshness_checksum.rs
++++ b/tests/testsuite/freshness_checksum.rs
+@@ -1509,7 +1509,6 @@ fn changing_rustflags_is_cached() {
+         .masquerade_as_nightly_cargo(&["checksum-freshness"])
+         .env("RUSTFLAGS", "-C linker=cc")
+         .with_stderr_data(str![[r#"
+-[DIRTY] foo v0.0.1 ([ROOT]/foo): the rustflags changed
+ [COMPILING] foo v0.0.1 ([ROOT]/foo)
+ [RUNNING] `rustc [..]
+ [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
+@@ -1520,9 +1519,7 @@ fn changing_rustflags_is_cached() {
+     p.cargo("build -Zchecksum-freshness -v")
+         .masquerade_as_nightly_cargo(&["checksum-freshness"])
+         .with_stderr_data(str![[r#"
+-[DIRTY] foo v0.0.1 ([ROOT]/foo): the rustflags changed
+-[COMPILING] foo v0.0.1 ([ROOT]/foo)
+-[RUNNING] `rustc [..] src/lib.rs [..]
++[FRESH] foo v0.0.1 ([ROOT]/foo)
+ [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
+ 
+ "#]])
+@@ -1531,11 +1528,50 @@ fn changing_rustflags_is_cached() {
+         .masquerade_as_nightly_cargo(&["checksum-freshness"])
+         .env("RUSTFLAGS", "-C linker=cc")
+         .with_stderr_data(str![[r#"
+-[DIRTY] foo v0.0.1 ([ROOT]/foo): the rustflags changed
++[FRESH] foo v0.0.1 ([ROOT]/foo)
++[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
++
++"#]])
++        .run();
++}
++
++#[cargo_test(nightly, reason = "requires -Zchecksum-hash-algorithm")]
++fn changing_rustc_extra_flags_is_cached() {
++    let p = project().file("src/lib.rs", "").build();
++
++    // This isn't ever cached, we always have to recompile
++    p.cargo("rustc -Zchecksum-freshness")
++        .masquerade_as_nightly_cargo(&["checksum-freshness"])
++        .with_stderr_data(str![[r#"
++[COMPILING] foo v0.0.1 ([ROOT]/foo)
++[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
++
++"#]])
++        .run();
++    p.cargo("rustc -Zchecksum-freshness -v -- -C linker=cc")
++        .masquerade_as_nightly_cargo(&["checksum-freshness"])
++        .with_stderr_data(str![[r#"
+ [COMPILING] foo v0.0.1 ([ROOT]/foo)
+ [RUNNING] `rustc [..]
+ [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
+ 
++"#]])
++        .run();
++
++    p.cargo("rustc -Zchecksum-freshness -v")
++        .masquerade_as_nightly_cargo(&["checksum-freshness"])
++        .with_stderr_data(str![[r#"
++[FRESH] foo v0.0.1 ([ROOT]/foo)
++[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
++
++"#]])
++        .run();
++    p.cargo("rustc -Zchecksum-freshness -v -- -C linker=cc")
++        .masquerade_as_nightly_cargo(&["checksum-freshness"])
++        .with_stderr_data(str![[r#"
++[FRESH] foo v0.0.1 ([ROOT]/foo)
++[FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s
++
+ "#]])
+         .run();
+ }
+
+diff --git a/tests/testsuite/pgo.rs b/tests/testsuite/pgo.rs
+index 32748af1732..8676e73f55f 100644
+--- a/tests/testsuite/pgo.rs
++++ b/tests/testsuite/pgo.rs
+@@ -103,7 +103,6 @@ fn pgo_works() {
+             ),
+         )
+         .with_stderr_data(str![[r#"
+-[DIRTY] foo v0.0.0 ([ROOT]/foo): the rustflags changed
+ [COMPILING] foo v0.0.0 ([ROOT]/foo)
+ [RUNNING] `rustc [..]-Cprofile-use=[ROOT]/foo/target/merged.profdata -Cllvm-args=-pgo-warn-missing-function`
+ [FINISHED] `release` profile [optimized] target(s) in [ELAPSED]s
+
+diff --git a/tests/testsuite/rustc.rs b/tests/testsuite/rustc.rs
+index 599438bc09e..2041c006706 100644
+--- a/tests/testsuite/rustc.rs
++++ b/tests/testsuite/rustc.rs
+@@ -616,7 +616,6 @@ fn rustc_fingerprint() {
+     p.cargo("rustc -v")
+         .with_stderr_does_not_contain("-C debug-assertions")
+         .with_stderr_data(str![[r#"
+-[DIRTY] foo v0.5.0 ([ROOT]/foo): the profile configuration changed
+ [COMPILING] foo v0.5.0 ([ROOT]/foo)
+ [RUNNING] `rustc --crate-name foo [..]`
+ [FINISHED] `dev` profile [unoptimized + debuginfo] target(s) in [ELAPSED]s

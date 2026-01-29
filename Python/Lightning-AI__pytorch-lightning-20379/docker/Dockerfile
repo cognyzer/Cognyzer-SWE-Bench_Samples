@@ -1,0 +1,85 @@
+FROM ubuntu:22.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+ENV TZ=Etc/UTC
+
+RUN apt update && apt install -y \
+wget \
+git \
+build-essential \
+libffi-dev \
+libtiff-dev \
+python3 \
+python3-pip \
+python-is-python3 \
+jq \
+curl \
+locales \
+locales-all \
+tzdata \
+&& rm -rf /var/lib/apt/lists/*
+
+# Download and install conda
+RUN set -eux; \
+  arch="$(uname -m)"; \
+  case "$arch" in \
+    x86_64) conda_arch="x86_64" ;; \
+    aarch64) conda_arch="aarch64" ;; \
+    *) echo "Unsupported architecture: $arch" && exit 1 ;; \
+  esac; \
+  wget "https://repo.anaconda.com/miniconda/Miniconda3-py311_23.11.0-2-Linux-${conda_arch}.sh" -O miniconda.sh; \
+  bash miniconda.sh -b -p /opt/miniconda3; \
+  rm miniconda.sh
+# Add conda to PATH
+ENV PATH=/opt/miniconda3/bin:$PATH
+# Add conda to shell startup scripts like .bashrc (DO NOT REMOVE THIS)
+RUN conda init --all
+RUN conda config --append channels conda-forge
+
+RUN adduser --disabled-password --gecos 'dog' nonroot
+
+
+RUN cat <<'INLINE_SCRIPT' > /root/setup_env.sh
+#!/bin/bash
+set -euxo pipefail
+source /opt/miniconda3/bin/activate
+conda create -n testbed python=3.10  -y
+conda activate testbed
+INLINE_SCRIPT
+RUN chmod +x /root/setup_env.sh
+RUN sed -i -e 's/\r$//' /root/setup_env.sh
+RUN chmod +x /root/setup_env.sh
+RUN /bin/bash -c "source ~/.bashrc && /root/setup_env.sh"
+
+WORKDIR /testbed/
+
+# Automatically activate the testbed environment
+RUN echo "source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed" > /root/.bashrc
+
+RUN cat <<'INLINE_SCRIPT' > /root/setup_repo.sh
+#!/bin/bash
+set -euxo pipefail
+git clone -o origin https://github.com/Lightning-AI/pytorch-lightning /testbed
+chmod -R 777 /testbed
+cd /testbed
+git reset --hard 61a403a512466d65ebe730b1cc0cf4a909a533f2
+git remote remove origin
+source /opt/miniconda3/bin/activate
+conda activate testbed
+echo "Current environment: $CONDA_DEFAULT_ENV"
+if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
+if [ -f "requirements-test.txt" ]; then pip install -r requirements-test.txt; fi
+if [ -f "test-requirements.txt" ]; then pip install -r test-requirements.txt; fi
+if [ -f "requirements_dev.txt" ]; then pip install -r requirements_dev.txt; fi
+pip install -e '.[dev]'
+pip install -e '.[test]'
+pip install --upgrade pytest pytest-cov
+git config --global user.email setup@swebench.config
+git config --global user.name SWE-bench
+git commit --allow-empty -am SWE-bench
+INLINE_SCRIPT
+RUN chmod +x /root/setup_repo.sh
+RUN sed -i -e 's/\r$//' /root/setup_repo.sh
+RUN /bin/bash /root/setup_repo.sh
+
+WORKDIR /testbed/

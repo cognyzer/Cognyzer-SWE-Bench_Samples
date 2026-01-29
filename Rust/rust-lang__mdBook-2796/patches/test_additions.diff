@@ -1,0 +1,114 @@
+diff --git a/tests/testsuite/book_test.rs b/tests/testsuite/book_test.rs
+index bbcc1906cc..2f5e9d6334 100644
+--- a/tests/testsuite/book_test.rs
++++ b/tests/testsuite/book_test.rs
+@@ -247,6 +247,26 @@ impl BookTest {
+         self
+     }
+ 
++    /// Removes a file or directory relative to the test root.
++    pub fn rm_r(&mut self, path: impl AsRef<Path>) -> &mut Self {
++        let path = self.dir.join(path.as_ref());
++        let meta = match path.symlink_metadata() {
++            Ok(meta) => meta,
++            Err(e) => panic!("failed to remove {path:?}, could not read: {e:?}"),
++        };
++        // There is a race condition between fetching the metadata and
++        // actually performing the removal, but we don't care all that much
++        // for our tests.
++        if meta.is_dir() {
++            if let Err(e) = std::fs::remove_dir_all(&path) {
++                panic!("failed to remove {path:?}: {e:?}");
++            }
++        } else if let Err(e) = std::fs::remove_file(&path) {
++            panic!("failed to remove {path:?}: {e:?}")
++        }
++        self
++    }
++
+     /// Builds a Rust program with the given src.
+     ///
+     /// The given path should be the path where to output the executable in
+@@ -319,6 +339,12 @@ impl BookCommand {
+         self
+     }
+ 
++    /// Sets the directory used for running the command.
++    pub fn current_dir<S: AsRef<std::path::Path>>(&mut self, path: S) -> &mut Self {
++        self.dir = self.dir.join(path.as_ref());
++        self
++    }
++
+     /// Use this to debug a command.
+     ///
+     /// Pass the value that you would normally pass to `RUST_LOG`, and this
+
+diff --git a/tests/testsuite/preprocessor.rs b/tests/testsuite/preprocessor.rs
+index 428c9d0821..17f208765e 100644
+--- a/tests/testsuite/preprocessor.rs
++++ b/tests/testsuite/preprocessor.rs
+@@ -75,6 +75,7 @@ fn example() -> CmdPreprocessor {
+     CmdPreprocessor::new(
+         "nop-preprocessor".to_string(),
+         "cargo run --quiet --example nop-preprocessor --".to_string(),
++        std::env::current_dir().unwrap(),
+     )
+ }
+ 
+@@ -95,3 +96,56 @@ fn example_doesnt_support_not_supported() {
+ 
+     assert_eq!(got, false);
+ }
++
++// Checks the behavior of a relative path to a preprocessor.
++#[test]
++fn relative_command_path() {
++    let mut test = BookTest::init(|_| {});
++    test.rust_program(
++        "preprocessors/my-preprocessor",
++        r#"
++        fn main() {
++            let mut args = std::env::args().skip(1);
++            if args.next().as_deref() == Some("supports") {
++                std::fs::write("support-check", args.next().unwrap()).unwrap();
++                return;
++            }
++            use std::io::Read;
++            let mut s = String::new();
++            std::io::stdin().read_to_string(&mut s).unwrap();
++            std::fs::write("preprocessor-ran", "test").unwrap();
++            println!("{{\"sections\": []}}");
++        }
++        "#,
++    )
++    .change_file(
++        "book.toml",
++        "[preprocessor.my-preprocessor]\n\
++         command = 'preprocessors/my-preprocessor'\n",
++    )
++    .run("build", |cmd| {
++        cmd.expect_stdout(str![""]).expect_stderr(str![[r#"
++[TIMESTAMP] [INFO] (mdbook_driver::mdbook): Book building has started
++[TIMESTAMP] [INFO] (mdbook_driver::mdbook): Running the html backend
++[TIMESTAMP] [INFO] (mdbook_html::html_handlebars::hbs_renderer): HTML book written to `[ROOT]/book`
++
++"#]]);
++    })
++    .check_file("support-check", "html")
++    .check_file("preprocessor-ran", "test")
++    // Try again, but outside of the book root to check relative path behavior.
++    .rm_r("support-check")
++    .rm_r("preprocessor-ran")
++    .run("build ..", |cmd| {
++        cmd.current_dir(cmd.dir.join("src"))
++            .expect_stdout(str![""])
++            .expect_stderr(str![[r#"
++[TIMESTAMP] [INFO] (mdbook_driver::mdbook): Book building has started
++[TIMESTAMP] [INFO] (mdbook_driver::mdbook): Running the html backend
++[TIMESTAMP] [INFO] (mdbook_html::html_handlebars::hbs_renderer): HTML book written to `[ROOT]/src/../book`
++
++"#]]);
++    })
++    .check_file("support-check", "html")
++    .check_file("preprocessor-ran", "test");
++}
